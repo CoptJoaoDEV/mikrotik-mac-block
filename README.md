@@ -22,7 +22,7 @@ Uma aplicação web leve construída com Node.js e Express para gerenciar dispos
 
 1. Clone este repositório para a sua máquina local:
    ```bash
-   git clone [https://github.com/SEU_USUARIO/SEU_REPOSITORIO.git](https://github.com/SEU_USUARIO/SEU_REPOSITORIO.git)
+   git clone https://github.com/CoptJoaoDEV/mikrotik-mac-block.git
    ```
 
 2. Acesse a pasta do projeto:
