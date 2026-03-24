@@ -1,0 +1,301 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Gerenciador MikroTik</title>
+    <style>
+        body {
+            font-family: Arial, sans-serif;
+            margin: 40px;
+            background-color: #f4f4f9;
+        }
+
+        .conexao-box {
+            background: white;
+            padding: 20px;
+            border-radius: 8px;
+            box-shadow: 0 2px 4px rgba(0, 0, 0, 0.1);
+            margin-bottom: 20px;
+            display: flex;
+            gap: 10px;
+            align-items: center;
+        }
+
+        input {
+            padding: 10px;
+            border: 1px solid #ccc;
+            border-radius: 4px;
+            font-size: 14px;
+        }
+
+        button {
+            padding: 10px 15px;
+            background-color: #0056b3;
+            color: white;
+            border: none;
+            border-radius: 4px;
+            cursor: pointer;
+            font-size: 14px;
+            font-weight: bold;
+        }
+
+        button:hover {
+            background-color: #004494;
+        }
+
+        table {
+            width: 100%;
+            border-collapse: collapse;
+            background: white;
+            box-shadow: 0 2px 4px rgba(0, 0, 0, 0.1);
+        }
+
+        th,
+        td {
+            padding: 12px;
+            border-bottom: 1px solid #eee;
+            text-align: left;
+        }
+
+        th {
+            background-color: #f8f9fa;
+            color: #333;
+        }
+
+        .erro {
+            color: #dc3545;
+            font-weight: bold;
+        }
+    </style>
+</head>
+
+<body>
+
+    <h1>Leases Ativos (DHCP)</h1>
+
+    
+    <div class="conexao-box">
+        <input type="text" id="mk-ip" placeholder="IP do MikroTik (ex: 192.168.88.1)">
+        <input type="text" id="mk-user" placeholder="Usuário" value="admin">
+        <input type="password" id="mk-pass" placeholder="Senha">
+        <button onclick="carregarLeases()">Conectar e Listar</button>
+    </div>
+    
+    <h2 id="nome-equipamento" style="color: #0056b3; margin-top: 20px; display: none;">
+        Equipamento conectado: <span id="identity-texto" style="color: #333;"></span>
+    </h2>
+    
+    <table>
+        <thead>
+            <tr>
+                <th>Hostname</th>
+                <th>Endereço IP</th>
+                <th>MAC Address</th>
+            </tr>
+        </thead>
+        <tbody id="tabela-corpo">
+            <tr>
+                <td colspan="3">Insira os dados de conexão acima para listar os MACs.</td>
+            </tr>
+        </tbody>
+    </table>
+    <hr style="margin: 40px 0; border: 1px solid #ddd;">
+
+    <h2>Dispositivos Bloqueados</h2>
+    <button onclick="carregarBloqueados()" style="background-color: #ffc107; color: #333;">Atualizar Bloqueados</button>
+
+    <table style="margin-top: 20px;">
+        <thead>
+            <tr>
+                <th>MAC Address</th>
+                <th>Comentário/Data</th>
+                <th>Ação</th>
+            </tr>
+        </thead>
+        <tbody id="tabela-bloqueados">
+            <tr>
+                <td colspan="3">Conecte para ver a lista de bloqueados.</td>
+            </tr>
+        </tbody>
+    </table>
+
+    <script>
+        async function carregarLeases() {
+            const host = document.getElementById('mk-ip').value;
+            const user = document.getElementById('mk-user').value;
+            const password = document.getElementById('mk-pass').value;
+            const tbody = document.getElementById('tabela-corpo');
+            const tituloEquipamento = document.getElementById('nome-equipamento');
+            const identityTexto = document.getElementById('identity-texto');
+
+            if (!host || !user) {
+                alert("Por favor, preencha pelo menos o IP e o Usuário.");
+                return;
+            }
+
+            tbody.innerHTML = '<tr><td colspan="4">Conectando ao MikroTik...</td></tr>';
+            tituloEquipamento.style.display = 'none'; // Esconde o título enquanto carrega
+
+            try {
+                const response = await fetch('/api/leases', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ host, user, password })
+                });
+
+                const data = await response.json();
+                if (!response.ok) {
+                    throw new Error(data.error || 'Erro desconhecido');
+                }
+
+                tbody.innerHTML = '';
+
+                // Atualiza e mostra o nome do equipamento no ecrã
+                identityTexto.innerText = data.identity;
+                tituloEquipamento.style.display = 'block';
+
+                // Agora acedemos a data.leases, pois mudámos o formato da resposta
+                if (data.leases.length === 0) {
+                    tbody.innerHTML = '<tr><td colspan="4">Nenhum lease ativo encontrado.</td></tr>';
+                    return;
+                }
+                
+                data.leases.forEach(lease => {
+                    const tr = document.createElement('tr');
+                    tr.innerHTML = `
+                        <td><strong>${lease.hostName}</strong></td>
+                        <td>${lease.ip}</td>
+                        <td>${lease.mac}</td>
+                        <td>
+                            <button style="background-color: #dc3545;" onclick="bloquearMac('${lease.mac}')">
+                                Bloquear
+                            </button>
+                        </td>
+                    `;
+                    tbody.appendChild(tr);
+                });
+
+                carregarBloqueados(); // Atualiza a tabela de baixo também
+
+            } catch (error) {
+                tbody.innerHTML = `<tr><td colspan="4" class="erro">${error.message}</td></tr>`;
+            }
+        }
+        async function bloquearMac(mac) {
+            // Pega as credenciais que já estão preenchidas nos inputs
+            const host = document.getElementById('mk-ip').value;
+            const user = document.getElementById('mk-user').value;
+            const password = document.getElementById('mk-pass').value;
+
+            // Confirmação simples para evitar cliques acidentais
+            if (!confirm(`Tem certeza que deseja bloquear o MAC ${mac}?`)) {
+                return;
+            }
+
+            try {
+                const response = await fetch('/api/block', {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json'
+                    },
+                    body: JSON.stringify({ host, user, password, macToBlock: mac })
+                });
+
+                const data = await response.json();
+
+                if (!response.ok) {
+                    throw new Error(data.error || 'Erro ao bloquear');
+                }
+
+                alert(data.message); // Mostra mensagem de sucesso
+
+                carregarLeases();
+                carregarBloqueados();
+
+            } catch (error) {
+                alert(`Erro: ${error.message}`);
+            }
+        }
+
+        async function carregarBloqueados() {
+            const host = document.getElementById('mk-ip').value;
+            const user = document.getElementById('mk-user').value;
+            const password = document.getElementById('mk-pass').value;
+            const tbody = document.getElementById('tabela-bloqueados');
+
+            if (!host || !user) {
+                alert("Preencha IP e Usuário para listar bloqueados.");
+                return;
+            }
+
+            tbody.innerHTML = '<tr><td colspan="3">Buscando regras no Firewall...</td></tr>';
+
+            try {
+                const response = await fetch('/api/blocked', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ host, user, password })
+                });
+
+                const data = await response.json();
+
+                if (!response.ok) throw new Error(data.error);
+
+                tbody.innerHTML = '';
+
+                if (data.length === 0) {
+                    tbody.innerHTML = '<tr><td colspan="3">Nenhum MAC bloqueado encontrado.</td></tr>';
+                    return;
+                }
+
+                data.forEach(rule => {
+                    const tr = document.createElement('tr');
+                    tr.innerHTML = `
+                        <td><strong>${rule.mac}</strong></td>
+                        <td>${rule.comment}</td>
+                        <td>
+                            <button style="background-color: #28a745;" onclick="desbloquearMac('${rule.id}')">
+                                Desbloquear
+                            </button>
+                        </td>
+                    `;
+                    tbody.appendChild(tr);
+                });
+
+            } catch (error) {
+                tbody.innerHTML = `<tr><td colspan="3" class="erro">${error.message}</td></tr>`;
+            }
+        }
+
+        async function desbloquearMac(ruleId) {
+            const host = document.getElementById('mk-ip').value;
+            const user = document.getElementById('mk-user').value;
+            const password = document.getElementById('mk-pass').value;
+
+            if (!confirm(`Tem certeza que deseja remover este bloqueio?`)) return;
+
+            try {
+                const response = await fetch('/api/unblock', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ host, user, password, ruleId })
+                });
+
+                const data = await response.json();
+
+                if (!response.ok) throw new Error(data.error);
+
+                alert(data.message);
+
+                // Recarrega as duas tabelas para manter a tela atualizada
+                carregarBloqueados();
+            } catch (error) {
+                alert(`Erro: ${error.message}`);
+            }
+        }
+    </script>
+</body>
+
+</html>
